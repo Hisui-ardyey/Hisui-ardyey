@@ -1,0 +1,104 @@
+import org.springframework.http.HttpStatus
+import org.springframework.security.core.Authentication
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.oauth2.jwt.Jwt
+import org.springframework.web.server.ResponseStatusException
+import spock.lang.Specification
+import spock.lang.Unroll
+
+class JwtServiceImplSpec extends Specification {
+
+    def jwtService = new JwtServiceImpl()
+
+    @Unroll
+    def "extractUsername should return msid when JWT is valid and present, or throw exception when #condition"() {
+        given:
+        Authentication authentication = Mock()
+        SecurityContextHolder.getContext().setAuthentication(authentication)
+
+        when:
+        String username = jwtService.extractUsername()
+
+        then:
+        thrown == expectedException
+        username == expectedMsid
+
+        where:
+        condition                               | expectedException                 | expectedMsid
+        "JWT is valid and msid is present"       | null                              | "test-msid"
+        "authentication is null"                 | ResponseStatusException.class     | null
+        "principal is not JWT"                  | ResponseStatusException.class     | null
+        "msid claim is null"                     | ResponseStatusException.class     | null
+        "msid claim is empty"                    | ResponseStatusException.class     | null
+
+        when: "JWT is valid and msid is present"
+        Jwt jwt = Mock()
+        jwt.getClaimAsString("msid") >> "test-msid"
+        authentication.getPrincipal() >> jwt
+
+        when: "authentication is null"
+        SecurityContextHolder.getContext().setAuthentication(null)
+
+        when: "principal is not JWT"
+        authentication.getPrincipal() >> "not a jwt"
+
+        when: "msid claim is null"
+        jwt = Mock()
+        jwt.getClaimAsString("msid") >> null
+        authentication.getPrincipal() >> jwt
+
+        when: "msid claim is empty"
+        jwt = Mock()
+        jwt.getClaimAsString("msid") >> ""
+        authentication.getPrincipal() >> jwt
+
+    }
+
+    def "extractUsername should throw Unauthorized exception with correct message"() {
+        given:
+        Authentication authentication = Mock()
+        SecurityContextHolder.getContext().setAuthentication(authentication)
+        Jwt jwt = Mock()
+        authentication.getPrincipal() >> jwt
+        jwt.getClaimAsString("msid") >> null
+
+
+        when:
+        jwtService.extractUsername()
+
+        then:
+        thrown(ResponseStatusException) {
+            it.status == HttpStatus.UNAUTHORIZED
+            it.message == "Unauthorized: Invalid Token"
+        }
+
+        when:
+        jwt = Mock()
+        authentication.getPrincipal() >> jwt
+        jwt.getClaimAsString("msid") >> ""
+
+        then:
+        thrown(ResponseStatusException) {
+            it.status == HttpStatus.UNAUTHORIZED
+            it.message == "Unauthorized: Invalid Token"
+        }
+
+        when:
+        SecurityContextHolder.getContext().setAuthentication(null)
+
+        then:
+        thrown(ResponseStatusException) {
+            it.status == HttpStatus.UNAUTHORIZED
+            it.message == "Unauthorized: Invalid Token"
+        }
+
+        when:
+        authentication.getPrincipal() >> "not a jwt"
+
+        then:
+        thrown(ResponseStatusException) {
+            it.status == HttpStatus.UNAUTHORIZED
+            it.message == "Unauthorized: Invalid Token"
+        }
+    }
+}
